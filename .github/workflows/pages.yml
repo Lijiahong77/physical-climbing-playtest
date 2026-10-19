@@ -1,0 +1,55 @@
+name: Deploy verified WebGL package
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: Release containing playtest-webgl.zip
+        required: true
+        type: string
+      package_sha256:
+        description: Exact SHA256 of the locally checked ZIP
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Download exact prebuilt game
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ inputs.release_tag }}
+          PACKAGE_SHA256: ${{ inputs.package_sha256 }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$PACKAGE_SHA256" =~ ^[0-9a-f]{64}$ ]]
+          gh release download "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --pattern playtest-webgl.zip --dir "$RUNNER_TEMP/game-package"
+          cd "$RUNNER_TEMP/game-package"
+          printf '%s  playtest-webgl.zip\n' "$PACKAGE_SHA256" | sha256sum --check --strict
+          unzip -q playtest-webgl.zip -d "$GITHUB_WORKSPACE/site"
+          test -f "$GITHUB_WORKSPACE/site/index.html"
+          test -f "$GITHUB_WORKSPACE/site/build-manifest.json"
+      - name: Configure Pages
+        uses: actions/configure-pages@v5
+      - name: Upload only compiled website
+        uses: actions/upload-pages-artifact@v4
+        with:
+          path: site
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
